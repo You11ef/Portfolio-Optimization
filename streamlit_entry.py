@@ -9,6 +9,8 @@ import matplotlib.pyplot as plt
 import seaborn as sns  # For correlation heatmap
 import financedatabase as fd
 
+st.set_page_config(page_title="Interactive Portfolio Optimization", layout="wide")
+
 # -------------------------------------------------
 # 1. LOAD & PREPARE A COMPREHENSIVE TICKER LIST
 # -------------------------------------------------
@@ -40,7 +42,7 @@ ticker_list = load_ticker_list()
 # -------------------------------------------------
 # 2. STREAMLIT APP LAYOUT
 # -------------------------------------------------
-st.set_page_config(page_title="Interactive Portfolio Optimization", layout="wide")
+
 
 st.title("Interactive Portfolio Optimization")
 
