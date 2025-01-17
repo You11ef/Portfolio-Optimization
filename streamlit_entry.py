@@ -6,6 +6,7 @@ from datetime import datetime
 from scipy.optimize import minimize
 from fredapi import Fred
 import matplotlib.pyplot as plt
+import seaborn as sns  # For correlation heatmap
 import financedatabase as fd
 
 # -------------------------------------------------
@@ -25,7 +26,7 @@ def load_ticker_list():
     df_all = pd.concat([df_etfs, df_equities], ignore_index=True)
     df_all.dropna(subset=['symbol'], inplace=True)
 
-    # Filter out tickers that start with ^
+    # Filter out tickers that start with '^'
     df_all = df_all[~df_all['symbol'].str.startswith('^')]
 
     # Create 'symbol_name' = "AAPL - Apple Inc."
@@ -34,12 +35,13 @@ def load_ticker_list():
     df_all.reset_index(drop=True, inplace=True)
     return df_all
 
-
 ticker_list = load_ticker_list()
 
 # -------------------------------------------------
 # 2. STREAMLIT APP LAYOUT
 # -------------------------------------------------
+st.set_page_config(page_title="Interactive Portfolio Optimization", layout="wide")
+
 st.title("Interactive Portfolio Optimization")
 
 # --- SIDEBAR: Portfolio Settings
@@ -55,7 +57,6 @@ sel_tickers = st.sidebar.multiselect(
 )
 
 # Convert user-friendly "symbol_name" back to the raw symbol
-# e.g., "AAPL - Apple Inc." --> "AAPL"
 sel_symbol_list = ticker_list.loc[ticker_list.symbol_name.isin(sel_tickers), 'symbol'].tolist()
 
 # --- B) Date Range Selection
@@ -89,10 +90,9 @@ max_weight = st.sidebar.slider("Maximum Weight", 0.0, 1.0, 0.4, 0.05)
 # 3. DISPLAY SELECTED TICKERS & PRICE CHART
 # -------------------------------------------------
 if len(sel_symbol_list) > 0:
-    # Show chosen tickers
-    st.write(f"**You have selected {len(sel_symbol_list)} tickers**: {', '.join(sel_symbol_list)}")
+    st.markdown(f"**You have selected {len(sel_symbol_list)} tickers**: {', '.join(sel_symbol_list)}")
 
-    # Fetch & display line chart for user-chosen tickers
+    # 3A) Fetch & display line chart
     st.subheader("Price History")
     data_raw = yf.download(
         sel_symbol_list, 
@@ -117,6 +117,15 @@ if len(sel_symbol_list) > 0:
 
     st.line_chart(price_data)
 
+    # 3B) Display correlation heatmap
+    st.subheader("Correlation Heatmap")
+    if len(sel_symbol_list) > 1:
+        corr_matrix = price_data.corr()
+        fig_corr, ax_corr = plt.subplots(figsize=(6, 4))
+        sns.heatmap(corr_matrix, annot=True, cmap="coolwarm", ax=ax_corr)
+        st.pyplot(fig_corr)
+    else:
+        st.info("Correlation Heatmap is available when 2 or more tickers are selected.")
 else:
     st.info("Select at least one ticker to see data and enable optimization.")
 
@@ -128,14 +137,12 @@ if st.sidebar.button("Optimize Portfolio"):
         st.warning("No tickers selected. Please select tickers first.")
     else:
         st.subheader("Portfolio Optimization Results")
-
-        # Download data again for the optimization (or reuse `price_data`)
-        # For robustness, let's re-fetch & ensure we have the correct shape
+        # Re-fetch the data to ensure correct shape
         df_prices = yf.download(sel_symbol_list, start=start_date, end=end_date, auto_adjust=True)['Close']
         df_prices.fillna(method='ffill', inplace=True)
         df_prices.dropna(axis=0, how='all', inplace=True)
 
-        # If there's only one ticker, make sure df_prices is DataFrame
+        # If there's only one ticker, make sure df_prices is a DataFrame
         if isinstance(df_prices, pd.Series):
             df_prices = df_prices.to_frame()
 
@@ -171,39 +178,49 @@ if st.sidebar.button("Optimize Portfolio"):
             bounds=bounds
         )
 
-        # Check success
         if optimized.success:
             opt_weights = optimized.x
 
             # Display weights
-            st.subheader("Optimal Portfolio Weights")
+            st.markdown("### Optimal Portfolio Weights")
             w_df = pd.DataFrame({
                 "Ticker": sel_symbol_list,
                 "Weight": opt_weights
             })
-            st.dataframe(w_df.set_index("Ticker"))
+            st.dataframe(w_df.set_index("Ticker"), use_container_width=True)
 
             # Calculate metrics
             opt_ret = portfolio_return(opt_weights, log_returns)
             opt_vol = portfolio_std(opt_weights, cov_matrix)
             opt_sharpe = sharpe_ratio(opt_weights, log_returns, cov_matrix, risk_free_rate)
 
-            st.subheader("Portfolio Metrics")
-            st.write(f"**Expected Annual Return:** {opt_ret:.4f}")
-            st.write(f"**Expected Annual Volatility:** {opt_vol:.4f}")
-            st.write(f"**Sharpe Ratio:** {opt_sharpe:.4f}")
+            # 4A) Display Portfolio Metrics in a table
+            st.markdown("### Portfolio Metrics")
+            metrics_df = pd.DataFrame({
+                "Metric": ["Expected Annual Return", "Expected Annual Volatility", "Sharpe Ratio"],
+                "Value": [f"{opt_ret:.4f}", f"{opt_vol:.4f}", f"{opt_sharpe:.4f}"]
+            })
+            st.table(metrics_df)
 
-            # Filter near-zero weights for the pie chart
+            # 4B) Allocation pie chart with a custom color palette
+            # Filter near-zero weights
             epsilon = 1e-6
             nz_idx = [i for i, w in enumerate(opt_weights) if abs(w) > epsilon]
             filtered_tickers = [sel_symbol_list[i] for i in nz_idx]
             filtered_weights = [opt_weights[i] for i in nz_idx]
 
-            # Allocation pie chart
+            # Example: using "tab20" palette from matplotlib
+            # We pick len(filtered_weights) distinct colors from this palette
+            cmap = plt.get_cmap("tab20")
+            colors = [cmap(i) for i in range(len(filtered_weights))]
+
             fig, ax = plt.subplots()
-            ax.pie(filtered_weights, labels=filtered_tickers, autopct='%1.1f%%', startangle=90)
-            ax.axis('equal')
-            st.subheader("Optimal Allocation")
+            ax.pie(filtered_weights, labels=filtered_tickers, autopct='%1.1f%%', startangle=90,
+                   colors=colors)
+            ax.axis('equal')  # Equal aspect ratio ensures pie is drawn as a circle
+
+            st.markdown("### Optimal Allocation")
             st.pyplot(fig)
+
         else:
             st.error("Optimization failed. Please adjust your inputs and try again.")
