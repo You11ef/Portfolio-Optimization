@@ -25,11 +25,15 @@ def load_ticker_list():
     df_all = pd.concat([df_etfs, df_equities], ignore_index=True)
     df_all.dropna(subset=['symbol'], inplace=True)
 
+    # Filter out tickers that start with ^
+    df_all = df_all[~df_all['symbol'].str.startswith('^')]
+
     # Create 'symbol_name' = "AAPL - Apple Inc."
     df_all['symbol_name'] = df_all['symbol'] + " - " + df_all['name'].fillna('')
     df_all.drop_duplicates(subset='symbol', inplace=True)
     df_all.reset_index(drop=True, inplace=True)
     return df_all
+
 
 ticker_list = load_ticker_list()
 
